@@ -1,0 +1,3 @@
+remote_repos = (
+    'https://github.com/pistacchio/izanagi.git',
+)
