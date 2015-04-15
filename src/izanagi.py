@@ -160,7 +160,15 @@ def update_cache():
 ################
 
 if __name__ == "__main__":
-    # TODO check how old is the last update and make an alert if older than a week
+    # check if in need of update
+    cache = json.load(open(IZANAGI_CACHE_FILE))
+    if cache:
+        last_updated      = cache[0]['updated']
+        last_updated_d    = datetime.datetime.strptime(last_updated, '%Y-%m-%d %H:%M:%S.%f')
+        last_updated_diff = datetime.datetime.now() - last_updated_d
+        if last_updated_diff.days > 7:
+            print "WARNING - You haven't updated the repository cache in over 7 days."
+            print '    Consider running "izanagi update"\n'
 
     if args['command'] == 'list':
         list_formulas()
