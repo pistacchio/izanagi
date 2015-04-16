@@ -9,7 +9,7 @@ import re
 import stat
 import sys
 import urllib2
-
+import tempfile
 from distutils.dir_util import copy_tree
 
 # TOP LEVEL CONSTANTS
@@ -30,8 +30,7 @@ config = imp.load_source('config', IZANAGI_CONFIG_FILE)
 #######################
 
 # TODO shortcut options like "i" for "install"
-
-parser     = argparse.ArgumentParser(prog="izanagi")
+parser = argparse.ArgumentParser(prog="izanagi")
 subparsers = parser.add_subparsers(dest='command', help='commands')
 
 install_parses = subparsers.add_parser('install', help='install formula')
@@ -42,7 +41,7 @@ install_parses.add_argument('--opts', action='store', help='optional arguments f
 list_parser = subparsers.add_parser('list', help='list available formulas')
 
 search_parser = subparsers.add_parser('search', help='search for formula')
-search_parser.add_argument('search_string',    action='store', help='formula to search for', type=str)
+search_parser.add_argument('search_string', action='store', help='formula to search for', type=str)
 
 update_parser = subparsers.add_parser('update', help='update formula data from remote repositories')
 
@@ -65,12 +64,21 @@ def get_formula(formula_name):
 
     return formulas
 
-def get_remote_tree(remote_repo_url):
-    # TODO better creation of the url
-    remote_api_url = GITHUB_API_BASE_URL + remote_repo_url.replace('https://github.com/', '').replace('.git', '') + '/git/trees/master?recursive=1'
-    response       = urllib2.urlopen(remote_api_url)
 
+def get_remote(remote_repo_url):
+    # TODO better creation of the url
+    remote_api_url = GITHUB_API_BASE_URL + \
+        remote_repo_url.replace('https://github.com/', '') \
+        .replace('.git', '') + '/git/trees/master?recursive=1'
+    response = urllib2.urlopen(remote_api_url)
     return json.loads(response.read())
+
+
+def get_remote_tree(remote_repo_url):
+    remote = get_remote(remote_repo_url)
+    if 'tree' in remote:
+        return remote['tree']
+    return None
 
 
 def install_formula(formula_name, destination_path, options=''):
@@ -100,23 +108,57 @@ def install_formula(formula_name, destination_path, options=''):
                 break
             print 'Invalid choice.'
     else:
-        origin = formulas.keys[0]
+        origin = formulas.keys()[0]
 
     if origin == 'local':
         formula_path = formulas['local']
     else:
-        # TODO download all the files to a temp directory and set it as formula_path
-        repository = [r for r in json.load(open(IZANAGI_CACHE_FILE)) if r['repository'] == origin][0]
-        all_remote_files = get_remote_tree(repository['repository_url'])['tree']
+        def _get_repository(origin):
+            repos = [r for r in json.load(open(IZANAGI_CACHE_FILE)) if r['repository'] == origin]
+            if len(repos) == 0 or len(repos) > 1:
+                print 'Invalid repository cache.'
+                print '    Consider running "izanagi update"\n'
+                sys.exit(1)
+            return repos[0]
+
+        repository = _get_repository(origin)
+        all_remote_files = get_remote_tree(repository['repository_url'])
+        if all_remote_files is None:
+            print 'Invalid formula'
+            sys.exit(1)
+
+        # import ipdb; ipdb.set_trace()
         remote_files = [rf for rf in all_remote_files if rf['path'].startswith('formulas/' + formula_name)]
+        formula_path = tempfile.mkdtemp()
+
+        def _mkdir_recursive(path):
+            sub_path = os.path.dirname(path)
+            if not os.path.exists(sub_path):
+                _mkdir_recursive(sub_path)
+            if not os.path.exists(path):
+                os.mkdir(path)
+
         for remote_file in remote_files:
-            # TODO better creation of the url
-            url = repository['repository_url'].replace('.git', '').replace('github.com', 'raw.githubusercontent.com') + '/master/' + remote_file['path']
-            url = 'https://raw.githubusercontent.com/pistacchio/izanagi/master/'
+            path = remote_file['path'].replace('formulas/' + formula_name + '/', '')
+            if remote_file['mode'] == '040000':
+                full_path = os.path.join(formula_path, path)
+                _mkdir_recursive(full_path)
+            else:
+                full_path = os.path.join(formula_path, path)
+                dirname = os.path.dirname(full_path)
+                _mkdir_recursive(dirname)
+                response = urllib2.urlopen(remote_file['url'])
+                raw_content = json.loads(response.read())
+                if not 'content' in raw_content:
+                    print 'Error while downloading formulas'
+                    os.removedirs(formula_path)
+                    sys.exit(1)
 
-            # TODO complete the installation
+                out_file = open(full_path, 'w+')
+                out_file.write(raw_content['content'].decode(raw_content['encoding']))
+                out_file.close()
 
-    skel_path    = os.path.join(formula_path, 'skel')
+    skel_path = os.path.join(formula_path, 'skel')
     if os.path.exists(skel_path):
         copy_tree(skel_path, destination_path)
 
@@ -129,7 +171,6 @@ def install_formula(formula_name, destination_path, options=''):
             pass
 
     os.system('"%s" "%s" %s' % (install_file, destination_path, options))
-
 
 
 def list_formulas(search_string=''):
@@ -152,7 +193,7 @@ def list_formulas(search_string=''):
         if remote_formulas:
             print '\n%s (%s):' % (remote_repo['repository'], remote_repo['repository_url'])
             for formula in remote_formulas:
-                print '    ' + formula
+                print ' '*4, formula
 
 
 def search_for_formula(search_string):
@@ -162,7 +203,7 @@ def search_for_formula(search_string):
 def update_cache():
     caches = []
     for remote_repo, remote_repo_url in config.remote_repos.iteritems():
-        json_formulas = get_remote_tree(remote_repo_url)
+        json_formulas = get_remote(remote_repo_url)
         formulas = set()
 
         for formula in [f['path'] for f in json_formulas['tree'] if f['path'].startswith('formulas')]:
@@ -179,6 +220,24 @@ def update_cache():
         })
 
     json.dump(caches, open(IZANAGI_CACHE_FILE, 'w+'))
+    # print 'Already up-to-date.'
+    print 'Updated.'
+
+
+# ############################################################################ #
+# _check_cache_status
+# check if in need of update
+# ############################################################################ #
+def _check_cache_status(cmd):
+    if cmd != 'update' and os.path.exists(IZANAGI_CACHE_FILE):
+        cache = json.load(open(IZANAGI_CACHE_FILE))
+        if cache:
+            last_updated = cache[0]['updated']
+            last_updated_d = datetime.datetime.strptime(last_updated, '%Y-%m-%d %H:%M:%S.%f')
+            last_updated_diff = datetime.datetime.now() - last_updated_d
+            if last_updated_diff.days > 7:
+                print "WARNING - You haven't updated the repository cache in over 7 days."
+                print '    Consider running "izanagi update"\n'
 
 
 ################
@@ -186,19 +245,11 @@ def update_cache():
 ################
 
 if __name__ == "__main__":
-    # check if in need of update
-    cache = json.load(open(IZANAGI_CACHE_FILE))
-    if cache:
-        last_updated      = cache[0]['updated']
-        last_updated_d    = datetime.datetime.strptime(last_updated, '%Y-%m-%d %H:%M:%S.%f')
-        last_updated_diff = datetime.datetime.now() - last_updated_d
-        if last_updated_diff.days > 7:
-            print "WARNING - You haven't updated the repository cache in over 7 days."
-            print '    Consider running "izanagi update"\n'
+    # TODO: check IZANAGI_CACHE_FILE integrity...
+    _check_cache_status(args['command'])
 
     if args['command'] == 'list':
         list_formulas()
-        sys.exit(0)
 
     if args['command'] == 'install':
         formula_name = args['formula_name']
@@ -209,12 +260,11 @@ if __name__ == "__main__":
 
         options = ' '.join(args['opts']) if args['opts'] else ''
         install_formula(formula_name, destination_path, options)
-        sys.exit(0)
 
     if args['command'] == 'search':
         search_for_formula(args['search_string'])
-        sys.exit(0)
 
     if args['command'] == 'update':
         update_cache()
-        sys.exit(0)
+
+    sys.exit(0)
