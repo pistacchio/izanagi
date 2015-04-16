@@ -15,6 +15,7 @@ from distutils.dir_util import copy_tree
 # TOP LEVEL CONSTANTS
 IZANAGI_HOME               = os.path.join(os.path.expanduser("~"), '.izanagi')
 IZANAGI_LOCAL_FORMULA_PATH = os.path.join(IZANAGI_HOME, 'formulas')
+IZANAGI_FORMULA_TEMPLATE  = os.path.join(IZANAGI_LOCAL_FORMULA_PATH, '.formula_template')
 IZANAGI_CACHE_PATH         = os.path.join(IZANAGI_HOME, 'cache')
 IZANAGI_CACHE_FILE         = os.path.join(IZANAGI_CACHE_PATH, 'cache')
 IZANAGI_CONFIG_FILE        = os.path.join(IZANAGI_HOME, 'config')
@@ -33,17 +34,25 @@ config = imp.load_source('config', IZANAGI_CONFIG_FILE)
 parser = argparse.ArgumentParser(prog="izanagi")
 subparsers = parser.add_subparsers(dest='command', help='commands')
 
+# install command
 install_parses = subparsers.add_parser('install', help='install formula')
 install_parses.add_argument('formula_name',    action='store', help='name of the formula to install', type=str)
 install_parses.add_argument('destination_path', action='store', help='where to install the formula', nargs='?', type=str)
 install_parses.add_argument('--opts', action='store', help='optional arguments for the installer', nargs=argparse.REMAINDER)
 
+# list command
 list_parser = subparsers.add_parser('list', help='list available formulas')
 
+# search command
 search_parser = subparsers.add_parser('search', help='search for formula')
 search_parser.add_argument('search_string', action='store', help='formula to search for', type=str)
 
+# update command
 update_parser = subparsers.add_parser('update', help='update formula data from remote repositories')
+
+# createformula command
+update_parser = subparsers.add_parser('createformula', help='create a new formula')
+update_parser.add_argument('formula_name', action='store', help='name of the formula to create', type=str)
 
 args = vars(parser.parse_args())
 
@@ -175,14 +184,15 @@ def install_formula(formula_name, destination_path, options=''):
 
 def list_formulas(search_string=''):
     # show local in first position if exists
-    local_formulas = os.listdir(IZANAGI_LOCAL_FORMULA_PATH)
+    local_formulas = [d for d in os.listdir(IZANAGI_LOCAL_FORMULA_PATH) if os.path.isdir(d)]
     if search_string:
         local_formulas = [f for f in local_formulas if search_string in f]
 
     if local_formulas:
         print 'local (%s):' % IZANAGI_LOCAL_FORMULA_PATH
         for formula in local_formulas:
-            print '    ' + formula
+            print ' '*4, formula
+        print ''
 
     for remote_repo in json.load(open(IZANAGI_CACHE_FILE)):
         remote_formulas = remote_repo['formulas']
@@ -191,9 +201,10 @@ def list_formulas(search_string=''):
             remote_formulas = [f for f in remote_formulas if search_string in f]
 
         if remote_formulas:
-            print '\n%s (%s):' % (remote_repo['repository'], remote_repo['repository_url'])
+            print '%s (%s):' % (remote_repo['repository'], remote_repo['repository_url'])
             for formula in remote_formulas:
                 print ' '*4, formula
+            print ''
 
 
 def search_for_formula(search_string):
@@ -224,12 +235,26 @@ def update_cache():
     print 'Updated.'
 
 
+def create_formula(args):
+    formula_name = args['formula_name']
+    if not os.path.exists(IZANAGI_FORMULA_TEMPLATE):
+        print "Error creating formula"
+        print "Formula template not found in ", IZANAGI_FORMULA_TEMPLATE
+
+    destination_path = os.path.join(os.getcwd(), formula_name)
+    if not os.path.exists(destination_path):
+        os.mkdir(destination_path)
+
+    copy_tree(IZANAGI_FORMULA_TEMPLATE, destination_path)
+    print "Done"
+
+
 # ############################################################################ #
 # _check_cache_status
 # check if in need of update
 # ############################################################################ #
-def _check_cache_status(cmd):
-    if cmd != 'update' and os.path.exists(IZANAGI_CACHE_FILE):
+def _check_cache_status():
+    if os.path.exists(IZANAGI_CACHE_FILE):
         cache = json.load(open(IZANAGI_CACHE_FILE))
         if cache:
             last_updated = cache[0]['updated']
@@ -240,31 +265,37 @@ def _check_cache_status(cmd):
                 print '    Consider running "izanagi update"\n'
 
 
-################
-# MAIN PROGRAM #
-################
-
+# ############################################################################ #
+# MAIN PROGRAM
+# ############################################################################ #
 if __name__ == "__main__":
     # TODO: check IZANAGI_CACHE_FILE integrity...
-    _check_cache_status(args['command'])
+    command = args['command']
 
-    if args['command'] == 'list':
-        list_formulas()
-
-    if args['command'] == 'install':
-        formula_name = args['formula_name']
-        if args['destination_path']:
-            destination_path = os.path.join(os.getcwd(), args['destination_path'])
-        else:
-            destination_path = os.path.join(os.getcwd(), formula_name)
-
-        options = ' '.join(args['opts']) if args['opts'] else ''
-        install_formula(formula_name, destination_path, options)
-
-    if args['command'] == 'search':
-        search_for_formula(args['search_string'])
-
-    if args['command'] == 'update':
+    if command == 'update':
         update_cache()
+
+    else:
+        _check_cache_status()
+
+        if command == 'list':
+            list_formulas()
+
+        if command == 'install':
+            formula_name = args['formula_name']
+            if args['destination_path']:
+                destination_path = os.path.join(os.getcwd(), args['destination_path'])
+            else:
+                destination_path = os.path.join(os.getcwd(), formula_name)
+
+            options = ' '.join(args['opts']) if args['opts'] else ''
+            install_formula(formula_name, destination_path, options)
+
+        if command == 'search':
+            search_for_formula(args['search_string'])
+
+        if command == 'createformula':
+            create_formula(args)
+
 
     sys.exit(0)
