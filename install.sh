@@ -9,4 +9,10 @@ wget https://raw.githubusercontent.com/pistacchio/izanagi/master/src/config -O ~
 chmod +x ~/.izanagi/bin/izanagi.py
 ln -s ~/.izanagi/bin/izanagi.py /usr/local/bin/izanagi
 
+# formula template
+mkdir -p ~/.izanagi/formulas/.formula_template/
+mkdir -p ~/.izanagi/formulas/.formula_template/skel
+wget https://raw.githubusercontent.com/pistacchio/izanagi/master/formulas/.formula_template/install -O ~/.izanagi/formulas/.formula_template/install
+chmod +x ~/.izanagi/formulas/.formula_template/install
+
 izanagi update
