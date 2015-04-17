@@ -19,49 +19,17 @@ IZANAGI_FORMULA_TEMPLATE  = os.path.join(IZANAGI_LOCAL_FORMULA_PATH, '.formula_t
 IZANAGI_CACHE_PATH         = os.path.join(IZANAGI_HOME, 'cache')
 IZANAGI_CACHE_FILE         = os.path.join(IZANAGI_CACHE_PATH, 'cache')
 IZANAGI_CONFIG_FILE        = os.path.join(IZANAGI_HOME, 'config')
-
 GITHUB_API_BASE_URL        = 'https://api.github.com/repos/'
-
 REGEX_FORMULA_FROM_URL     = re.compile(r'formulas/(.*?)/')
 
 config = imp.load_source('config', IZANAGI_CONFIG_FILE)
-
-#######################
-# CLI ARGUMENT PARSER #
-#######################
-
-# TODO shortcut options like "i" for "install"
-parser = argparse.ArgumentParser(prog="izanagi")
-subparsers = parser.add_subparsers(dest='command', help='commands')
-
-# install command
-install_parses = subparsers.add_parser('install', help='install formula')
-install_parses.add_argument('formula_name',    action='store', help='name of the formula to install', type=str)
-install_parses.add_argument('destination_path', action='store', help='where to install the formula', nargs='?', type=str)
-install_parses.add_argument('--opts', action='store', help='optional arguments for the installer', nargs=argparse.REMAINDER)
-
-# list command
-list_parser = subparsers.add_parser('list', help='list available formulas')
-
-# search command
-search_parser = subparsers.add_parser('search', help='search for formula')
-search_parser.add_argument('search_string', action='store', help='formula to search for', type=str)
-
-# update command
-update_parser = subparsers.add_parser('update', help='update formula data from remote repositories')
-
-# createformula command
-update_parser = subparsers.add_parser('createformula', help='create a new formula')
-update_parser.add_argument('formula_name', action='store', help='name of the formula to create', type=str)
-
-args = vars(parser.parse_args())
-
 
 ####################
 # HELPER FUNCTIONS #
 ####################
 
-def get_formula(formula_name):
+
+def _get_formula(formula_name):
     formulas = {}
 
     if formula_name in os.listdir(IZANAGI_LOCAL_FORMULA_PATH):
@@ -74,7 +42,7 @@ def get_formula(formula_name):
     return formulas
 
 
-def get_remote(remote_repo_url):
+def _get_remote(remote_repo_url):
     # TODO better creation of the url
     remote_api_url = GITHUB_API_BASE_URL + \
         remote_repo_url.replace('https://github.com/', '') \
@@ -83,15 +51,22 @@ def get_remote(remote_repo_url):
     return json.loads(response.read())
 
 
-def get_remote_tree(remote_repo_url):
-    remote = get_remote(remote_repo_url)
+def _get_remote_tree(remote_repo_url):
+    remote = _get_remote(remote_repo_url)
     if 'tree' in remote:
         return remote['tree']
     return None
 
 
-def install_formula(formula_name, destination_path, options=''):
-    formulas = get_formula(formula_name)
+def install_formula(args):
+    formula_name = args['formula_name']
+    if args['destination_path']:
+        destination_path = os.path.join(os.getcwd(), args['destination_path'])
+    else:
+        destination_path = os.path.join(os.getcwd(), formula_name)
+    options = ' '.join(args['opts']) if args['opts'] else ''
+
+    formulas = _get_formula(formula_name)
 
     if formulas == {}:
         print 'Formula not found'
@@ -131,12 +106,11 @@ def install_formula(formula_name, destination_path, options=''):
             return repos[0]
 
         repository = _get_repository(origin)
-        all_remote_files = get_remote_tree(repository['repository_url'])
+        all_remote_files = _get_remote_tree(repository['repository_url'])
         if all_remote_files is None:
             print 'Invalid formula'
             sys.exit(1)
 
-        # import ipdb; ipdb.set_trace()
         remote_files = [rf for rf in all_remote_files if rf['path'].startswith('formulas/' + formula_name)]
         formula_path = tempfile.mkdtemp()
 
@@ -182,7 +156,7 @@ def install_formula(formula_name, destination_path, options=''):
     os.system('"%s" "%s" %s' % (install_file, destination_path, options))
 
 
-def list_formulas(search_string=''):
+def list_formulas(args, search_string=''):
     # show local in first position if exists
     local_formulas = [d for d in os.listdir(IZANAGI_LOCAL_FORMULA_PATH) if os.path.isdir(d)]
     if search_string:
@@ -207,14 +181,15 @@ def list_formulas(search_string=''):
             print ''
 
 
-def search_for_formula(search_string):
-    return list_formulas(search_string)
+def search_for_formula(args):
+    search_string = args['search_string']
+    return list_formulas(args, search_string)
 
 
 def update_cache():
     caches = []
     for remote_repo, remote_repo_url in config.remote_repos.iteritems():
-        json_formulas = get_remote(remote_repo_url)
+        json_formulas = _get_remote(remote_repo_url)
         formulas = set()
 
         for formula in [f['path'] for f in json_formulas['tree'] if f['path'].startswith('formulas')]:
@@ -239,7 +214,8 @@ def create_formula(args):
     formula_name = args['formula_name']
     if not os.path.exists(IZANAGI_FORMULA_TEMPLATE):
         print "Error creating formula"
-        print "Formula template not found in ", IZANAGI_FORMULA_TEMPLATE
+        print "Template not found in", IZANAGI_FORMULA_TEMPLATE
+        return 1
 
     destination_path = os.path.join(os.getcwd(), formula_name)
     if not os.path.exists(destination_path):
@@ -247,6 +223,7 @@ def create_formula(args):
 
     copy_tree(IZANAGI_FORMULA_TEMPLATE, destination_path)
     print "Done"
+    return 0
 
 
 # ############################################################################ #
@@ -268,34 +245,54 @@ def _check_cache_status():
 # ############################################################################ #
 # MAIN PROGRAM
 # ############################################################################ #
-if __name__ == "__main__":
-    # TODO: check IZANAGI_CACHE_FILE integrity...
-    command = args['command']
+def main(argv):
+    command_handlers = {}
+    # Setting up argument parser...
+    # We setup a parser and a specific handler for each command.
+    parser = argparse.ArgumentParser(prog="izanagi")
+    subparsers = parser.add_subparsers(dest='command', help='commands')
 
-    if command == 'update':
-        update_cache()
+    # install command
+    install_parses = subparsers.add_parser('install', help='install formula')
+    install_parses.add_argument('formula_name',    action='store', help='name of the formula to install', type=str)
+    install_parses.add_argument('destination_path', action='store', help='where to install the formula', nargs='?', type=str)
+    install_parses.add_argument('--opts', action='store', help='optional arguments for the installer', nargs=argparse.REMAINDER)
+    command_handlers['install'] = install_formula
+
+    # list command
+    list_parser = subparsers.add_parser('list', help='list available formulas')
+    command_handlers['list'] = list_formulas
+
+    # search command
+    search_parser = subparsers.add_parser('search', help='search for formula')
+    search_parser.add_argument('search_string', action='store', help='formula to search for', type=str)
+    command_handlers['search'] = search_for_formula
+
+    # update command
+    update_parser = subparsers.add_parser('update', help='update formula data from remote repositories')
+    command_handlers['update'] = update_cache
+
+    # createformula command
+    update_parser = subparsers.add_parser('createformula', help='create a new formula')
+    update_parser.add_argument('formula_name', action='store', help='name of the formula to create', type=str)
+    command_handlers['createformula'] = create_formula
+
+    # let argparse read the arguments
+    args = vars(parser.parse_args())
+
+    command = args['command']
+    handler = command_handlers.get(command)
+    if handler is not None:
+        if command != 'update':
+            _check_cache_status()
+        return handler(args)
 
     else:
-        _check_cache_status()
-
-        if command == 'list':
-            list_formulas()
-
-        if command == 'install':
-            formula_name = args['formula_name']
-            if args['destination_path']:
-                destination_path = os.path.join(os.getcwd(), args['destination_path'])
-            else:
-                destination_path = os.path.join(os.getcwd(), formula_name)
-
-            options = ' '.join(args['opts']) if args['opts'] else ''
-            install_formula(formula_name, destination_path, options)
-
-        if command == 'search':
-            search_for_formula(args['search_string'])
-
-        if command == 'createformula':
-            create_formula(args)
+        print 'Handler not found for this command'
+        return 1
 
 
-    sys.exit(0)
+if __name__ == "__main__":
+    ret = main(sys.argv)
+    if ret is not None:
+        sys.exit(ret)
