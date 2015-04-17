@@ -1,0 +1,3 @@
+remote_repos = {
+    'main':  'https://github.com/pistacchio/izanagi.git'
+}
