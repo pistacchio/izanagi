@@ -153,12 +153,12 @@ def install_formula(args):
         except:
             pass
 
-    os.system('"%s" "%s" %s' % (install_file, destination_path, options))
+        os.system('"%s" "%s" %s' % (install_file, destination_path, options))
 
 
 def list_formulas(args, search_string=''):
     # show local in first position if exists
-    local_formulas = [d for d in os.listdir(IZANAGI_LOCAL_FORMULA_PATH) if os.path.isdir(d)]
+    local_formulas = [d for d in os.listdir(IZANAGI_LOCAL_FORMULA_PATH) if os.path.isdir(os.path.join(IZANAGI_LOCAL_FORMULA_PATH, d))]
     if search_string:
         local_formulas = [f for f in local_formulas if search_string in f]
 
@@ -186,7 +186,7 @@ def search_for_formula(args):
     return list_formulas(args, search_string)
 
 
-def update_cache():
+def update_cache(args):
     caches = []
     for remote_repo, remote_repo_url in config.remote_repos.iteritems():
         json_formulas = _get_remote(remote_repo_url)
@@ -224,6 +224,10 @@ def create_formula(args):
     copy_tree(IZANAGI_FORMULA_TEMPLATE, destination_path)
     print "Done"
     return 0
+
+
+def make_formula(args):
+    pass
 
 
 # ############################################################################ #
@@ -276,6 +280,11 @@ def main(argv):
     update_parser = subparsers.add_parser('createformula', help='create a new formula')
     update_parser.add_argument('formula_name', action='store', help='name of the formula to create', type=str)
     command_handlers['createformula'] = create_formula
+
+    # createformula command
+    update_parser = subparsers.add_parser('makeformula', help='create a new formula from the current directory')
+    update_parser.add_argument('formula_name', action='store', help='name of the formula to create', type=str)
+    command_handlers['makeformula'] = make_formula
 
     # let argparse read the arguments
     args = vars(parser.parse_args())
