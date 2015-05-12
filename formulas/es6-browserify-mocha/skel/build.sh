@@ -8,7 +8,7 @@ function compile {
     fi
 
     babel src --out-dir $TEMPDIR
-    browserify $TEMPDIR/app.js -o dist/app.js
+    browserify $TEMPDIR/app.js  --debug -o dist/app.js
 
     cp -r $TEMPDIR/tests .
 }
@@ -29,3 +29,5 @@ fi
 if [[ $* == *--test* ]]; then
     mocha -C tests/*.js
 fi
+
+rm -r $TEMPDIR
