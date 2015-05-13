@@ -7,10 +7,16 @@ function compile {
         mkdir dist
     fi
 
+    if [ ! -d "tests" ]; then
+        mkdir tests
+    fi
+
     babel src --out-dir $TEMPDIR
     browserify $TEMPDIR/app.js  --debug -o dist/app.js
 
-    cp -r $TEMPDIR/tests .
+    for FILE in $TEMPDIR/tests/*test*.js; do
+        browserify $FILE --debug -o ./tests/$(basename $FILE)
+    done
 }
 
 if [[ $* == *--clean* ]]; then
