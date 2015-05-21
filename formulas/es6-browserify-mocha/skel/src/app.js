@@ -1,3 +1,1 @@
-var dependency = require('./dependency');
-
-dependency.test();
+require("./utils");

@@ -12,7 +12,12 @@ function compile {
     fi
 
     babel src --out-dir $TEMPDIR
-    browserify $TEMPDIR/app.js  --debug -o dist/app.js
+
+    if [[ $* == *--browser* ]]; then
+        browserify $TEMPDIR/app.js  --debug -o dist/app.js
+    else
+        cp -r $TEMPDIR/* dist/
+    fi
 
     for FILE in $TEMPDIR/tests/*test*.js; do
         browserify $FILE --debug -o ./tests/$(basename $FILE)
